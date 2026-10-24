@@ -70,6 +70,18 @@ test('a confirmed dynamic CNKI skip remains done even when its card icon is unkn
   assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:cnki:1', kind: 'link', index: 1 }], records).index, 1);
 });
 
+test('an unknown card is complete only after a real external link was opened', () => {
+  const nodeId = '1942858164356464640';
+  const resource = { id: 'unknown:bilibili:1', kind: 'unknown', title: '比芯片更可悲的行业', index: 0 };
+  const key = core.resourceKey(nodeId, resource);
+  assert.equal(core.nextResource(nodeId, [resource], { [key]: { status: 'opened' } }), resource);
+  const records = { [key]: { status: 'opened', kind: 'link', url: 'https://www.bilibili.com/video/BV1test', nodeId, title: resource.title, index: 0 } };
+  assert.equal(core.nextResource(nodeId, [resource], records), null);
+  assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:bilibili:1', kind: 'link' }], records), null);
+  assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:bilibili:1', kind: 'link', index: 1 }], records).index, 1);
+  assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'video:bilibili:1', kind: 'video', completed: false }], records).kind, 'video');
+});
+
 test('video must report a real ended state rather than just near-end position', () => {
   assert.equal(core.videoFinished({ ended: false, currentTime: 9.99, duration: 10 }), false);
   assert.equal(core.videoFinished({ ended: true, currentTime: 10, duration: 10 }), true);

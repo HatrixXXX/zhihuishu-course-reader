@@ -8,7 +8,7 @@
 
 ## 下载
 
-- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.2.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
+- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.3.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
 - [直接安装用户脚本](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/course-reader.user.js)：浏览器已安装篡改猴或脚本猫时，可通过管理器安装。
 - [版本与下载列表](https://github.com/HatrixXXX/zhihuishu-course-reader/releases)。
 
@@ -23,7 +23,7 @@
 初次运行会扫描目录。必学和选学都会处理，目录中已经显示 100% 的知识点也会进入检查。
 
 - PPT、PDF、文档和图文：点击资源卡片，等待页面切换和加载，停留 3 秒后继续。PPT 不逐页翻看。
-- 外链：点击平台的资源卡片，使用脚本管理器在后台打开目标页面，停留 3 秒后关闭该标签页。目标网站的内容加载和阅读情况无法跨域验证。
+- 外链：点击平台的资源卡片，使用脚本管理器在后台打开目标页面，停留 3 秒后关闭该标签页。无类型标记的卡片只有在点击时取得有效 HTTP/HTTPS 外链后才会记为已打开。目标网站的内容加载、验证和阅读情况无法跨域验证。
 - 视频：默认静音、1 倍速，等待播放器真实结束。平台卡片已经明确显示完成的视频会跳过，不重复播放。
 - 知网安全验证链接：已确认的卡片标题、卡片直链，或点击时请求打开的知网地址会留待人工处理，继续遍历后面的资源；不会将其记为已打开。全部遍历后，右下角报告列出跳过项、课程位置链接，以及能取得的知网直链。
 

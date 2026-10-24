@@ -207,6 +207,58 @@ test('a CNKI popup scheduled after the initial settle delay is still deferred', 
   } finally { h.close(); }
 });
 
+test('an unlabelled Bilibili link opens once and traversal continues', async () => {
+  const title = '比芯片更可悲的行业，制造业命脉受制于人，国产CAE软件开始突围！';
+  const h = harness({ html: card(title, 'unknown-platform') + card('后续讲义.pptx', 'other') });
+  h.document.querySelector('h5').addEventListener('click', () => {
+    h.document.querySelector('.basic-info-video-card-container .icon-box').className = 'icon-box link';
+    h.window.open('https://www.bilibili.com/video/BV1example');
+  });
+  try {
+    await h.app.start();
+    assert.deepEqual(h.clicks, [title, '后续讲义.pptx']);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['opened', 'opened']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.deepEqual(h.popups.map(p => p.url), ['https://www.bilibili.com/video/BV1example']);
+    assert.equal(h.popups[0].closed, true);
+    const resumed = harness({ store: h.store, html: card(title, 'link') + card('后续讲义.pptx', 'other') });
+    try {
+      await resumed.app.start();
+      assert.deepEqual(resumed.clicks, []);
+    } finally { resumed.close(); }
+  } finally { h.close(); }
+});
+
+test('an ordinary external popup scheduled after the first wait is opened once', async () => {
+  let launched = false;
+  const h = harness({
+    html: card('稍后打开的外链', 'unknown-platform'),
+    step: ({ now, window }) => {
+      if (!launched && now >= 1020) { launched = true; window.open('https://www.bilibili.com/video/BV1delayed'); }
+    },
+  });
+  try {
+    await h.app.start();
+    assert.equal(launched, true);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['opened']);
+    assert.deepEqual(h.popups.map(p => p.url), ['https://www.bilibili.com/video/BV1delayed']);
+    assert.equal(h.popups[0].closed, true);
+  } finally { h.close(); }
+});
+
+test('unknown cards cannot turn blank, relative, or course URLs into successful external visits', async () => {
+  for (const target of [undefined, '', '/some-path', learn]) {
+    const h = harness({ html: card('无有效外链', 'unknown-platform') });
+    h.document.querySelector('h5').addEventListener('click', () => h.window.open(target));
+    try {
+      await h.app.start();
+      assert.deepEqual(h.app.getState().records, {}, String(target));
+      assert.equal(h.app.getState().chapterDone[nodeId], undefined, String(target));
+      assert.deepEqual(h.popups, [], String(target));
+    } finally { h.close(); }
+  }
+});
+
 test('persisted resume continues in the same tab without reopening visited documents', async () => {
   const store = new Map();
   const h = harness({ store, html: card('一.pptx', 'other') + card('二.pptx', 'other') });

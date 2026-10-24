@@ -25,12 +25,14 @@
     if (record?.status === 'skipped') return true;
     if (resource.kind === 'manual') return record?.status === 'skipped';
     if (resource.kind === 'video') return resource.completed === true || ['watched', 'platform-complete'].includes(record?.status);
+    if (resource.kind === 'unknown') return record?.status === 'opened' && record.kind === 'link' && /^https?:\/\//.test(record.url || '');
     return resource.kind !== 'unknown' && record?.status === 'opened';
   }
   function nextResource(nodeId, resources, records) {
-    const skipped = Object.values(records).filter(r => r.status === 'skipped' && r.nodeId === String(nodeId) && Number.isInteger(r.index));
+    const handled = Object.values(records).filter(r => r.nodeId === String(nodeId) && Number.isInteger(r.index) &&
+      (r.status === 'skipped' || (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
     return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)]) &&
-      !skipped.some(record => record.index === r.index && record.title === r.title)) || null;
+      (r.kind === 'video' || !handled.some(record => record.index === r.index && record.title === r.title))) || null;
   }
   function videoFinished(media) {
     return media?.ended === true && Number.isFinite(media.duration) && media.duration > 0 &&

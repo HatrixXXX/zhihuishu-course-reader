@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         国家安全概论 · 全部资源学习助手
 // @namespace    local.zhihuishu.course-reader
-// @version      1.0.2
+// @version      1.0.3
 // @description  遍历本课程全部必学和选学资源，打开文档和链接，顺序播放视频，支持暂停和断点继续。
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/2101609010059079680/299118*
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/learnPage/2101609010059079680/*/299118*
@@ -43,12 +43,14 @@
     if (record?.status === 'skipped') return true;
     if (resource.kind === 'manual') return record?.status === 'skipped';
     if (resource.kind === 'video') return resource.completed === true || ['watched', 'platform-complete'].includes(record?.status);
+    if (resource.kind === 'unknown') return record?.status === 'opened' && record.kind === 'link' && /^https?:\/\//.test(record.url || '');
     return resource.kind !== 'unknown' && record?.status === 'opened';
   }
   function nextResource(nodeId, resources, records) {
-    const skipped = Object.values(records).filter(r => r.status === 'skipped' && r.nodeId === String(nodeId) && Number.isInteger(r.index));
+    const handled = Object.values(records).filter(r => r.nodeId === String(nodeId) && Number.isInteger(r.index) &&
+      (r.status === 'skipped' || (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
     return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)]) &&
-      !skipped.some(record => record.index === r.index && record.title === r.title)) || null;
+      (r.kind === 'video' || !handled.some(record => record.index === r.index && record.title === r.title))) || null;
   }
   function videoFinished(media) {
     return media?.ended === true && Number.isFinite(media.duration) && media.duration > 0 &&
@@ -389,7 +391,8 @@
     function note(resource, nodeId, status) {
       check();
       const mapUid = status === 'skipped' ? new URL(win.location.href).searchParams.get('mapUid') : null;
-      state.records[core.resourceKey(nodeId, resource)] = { title: resource.title, kind: resource.kind, status, nodeId, index: resource.index, url: resource.url || null, mapUid: /^\d+$/.test(mapUid || '') ? mapUid : null, at: new Date(now()).toISOString() };
+      const kind = resource.kind === 'unknown' && status === 'opened' && resource.url ? 'link' : resource.kind;
+      state.records[core.resourceKey(nodeId, resource)] = { title: resource.title, kind, status, nodeId, index: resource.index, url: resource.url || null, mapUid: /^\d+$/.test(mapUid || '') ? mapUid : null, at: new Date(now()).toISOString() };
       save();
       log(`${status === 'watched' ? '视频已播放结束' : status === 'platform-complete' ? '平台已显示视频完成' : status === 'skipped' ? '留待人工处理' : '已打开'}：${resource.title}`);
     }
@@ -410,16 +413,21 @@
       (env.navigate || (value => win.location.assign(value)))(url);
       return 'navigate';
     }
-    async function openLink(resource) {
+    async function openLink(resource, probeUnknown = false) {
       const original = pageWindow.open;
+      const previousMedia = probeUnknown ? dom.findMedia(doc) : null;
+      const wasPaused = previousMedia?.paused;
       const opened = [];
       let failure = null;
       let deferredUrl = null;
       const blockedHandle = { closed: false, close() { this.closed = true; }, focus() {} };
       function open(value) {
         try {
+          const raw = String(value ?? '').trim();
+          if (probeUnknown && !/^(?:https?:\/\/|\/\/)/i.test(raw)) return blockedHandle;
           const url = new URL(String(value), win.location.href);
           if (!/^https?:$/.test(url.protocol)) throw new Error('链接不是 HTTP/HTTPS 地址。');
+          if (probeUnknown && url.origin === new URL(win.location.href).origin) return blockedHandle;
           const cnki = dom.cnkiDestination(url.href, win.location.href);
           if (cnki) { deferredUrl = cnki; return blockedHandle; }
           if (opened.some(item => item.url === url.href)) return opened.find(item => item.url === url.href).handle;
@@ -430,43 +438,26 @@
         } catch (error) { failure = error; return null; }
       }
       const hook = function (url) { return open(url); };
-      const anchor = resource.element.querySelector('a[href]');
+      const anchor = probeUnknown ? null : resource.element.querySelector('a[href]');
       const followAnchor = event => { event.preventDefault(); open(anchor.href); };
       try {
         pageWindow.open = hook;
         anchor?.addEventListener('click', followAnchor);
         (anchor || resource.clickTarget).click();
-        await waitFor(() => { if (deferredUrl) return true; if (failure) throw failure; return opened.length > 0; }, '外链未打开，请检查脚本管理器的标签页权限后继续。');
+        await waitFor(() => { if (deferredUrl) return true; if (failure) throw failure; return opened.length > 0; },
+          probeUnknown ? `无法识别资源类型：${resource.title}，请手动检查。` : '外链未打开，请检查脚本管理器的标签页权限后继续。',
+          probeUnknown ? time.probe : time.load);
         if (!deferredUrl) await dwell();
       } finally {
         anchor?.removeEventListener('click', followAnchor);
         if (pageWindow.open === hook) pageWindow.open = original;
         for (const item of opened) { try { item.handle.close(); } catch (_) { /* The user may already have closed it. */ } }
-      }
-      return deferredUrl;
-    }
-    async function probeUnknownLink(resource) {
-      const original = pageWindow.open;
-      const previousMedia = dom.findMedia(doc);
-      const wasPaused = previousMedia?.paused;
-      let deferredUrl = null;
-      const blockedHandle = { closed: false, close() { this.closed = true; }, focus() {} };
-      const hook = value => { deferredUrl ||= dom.cnkiDestination(value, win.location.href); return blockedHandle; };
-      try {
-        pageWindow.open = hook;
-        const deadline = now() + time.probe;
-        resource.clickTarget.click();
-        await sleep(time.settle, aborter.signal);
-        while (!deferredUrl && now() < deadline) {
-          check();
-          await sleep(Math.min(time.poll, deadline - now()), aborter.signal);
+        if (probeUnknown) {
+          const media = dom.findMedia(doc);
+          if (media && !media.paused && (media !== previousMedia || wasPaused)) media.pause();
         }
-      } finally {
-        if (pageWindow.open === hook) pageWindow.open = original;
-        const media = dom.findMedia(doc);
-        if (media && !media.paused && (media !== previousMedia || wasPaused)) media.pause();
       }
-      return deferredUrl;
+      return deferredUrl ? { status: 'skipped', url: deferredUrl } : { status: 'opened', url: opened[0].url };
     }
     async function watchVideo(resource, before, wasSelected) {
       const previousSource = before.source;
@@ -504,16 +495,11 @@
       check();
       if (resource.kind === 'manual') { deferToManual(resource, nodeId); return; }
       if (!resource.title) throw new Error('无法识别资源类型：无标题资源，请手动检查。');
-      if (resource.kind === 'unknown') {
-        const url = await probeUnknownLink(resource);
-        if (!url) throw new Error(`无法识别资源类型：${resource.title}，请手动检查。`);
-        deferToManual(resource, nodeId, url);
-        return;
-      }
-      log(`处理${resource.kind === 'video' ? '视频' : resource.kind === 'link' ? '链接' : '文档/图文'}：${resource.title}`);
-      if (resource.kind === 'link') {
-        const url = await openLink(resource);
-        if (url) { deferToManual(resource, nodeId, url); return; }
+      log(`处理${resource.kind === 'video' ? '视频' : resource.kind === 'link' || resource.kind === 'unknown' ? '链接' : '文档/图文'}：${resource.title}`);
+      if (resource.kind === 'link' || resource.kind === 'unknown') {
+        const result = await openLink(resource, resource.kind === 'unknown');
+        resource.url = result.url;
+        if (result.status === 'skipped') { deferToManual(resource, nodeId, result.url); return; }
       } else {
         const previousMedia = dom.findMedia(doc);
         const before = { media: previousMedia, source: previousMedia ? (previousMedia.currentSrc || previousMedia.getAttribute('src') || '') : '' };
@@ -632,7 +618,7 @@
       panel = doc.createElement('section');
       panel.id = 'zhs-read-all-panel';
       panel.setAttribute('aria-label', '全资源学习助手');
-      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.2</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>知网待验证链接留待人工处理；其他验证、答题或加载异常会暂停。</small><section data-report hidden></section>';
+      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.3</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>知网待验证链接留待人工处理；其他验证、答题或加载异常会暂停。</small><section data-report hidden></section>';
       const style = doc.createElement('style');
       style.textContent = '#zhs-read-all-panel{position:fixed;right:20px;bottom:20px;z-index:2147483646;width:350px;max-width:90vw;background:#fff;color:#17212d;border:1px solid #c7d5e4;border-radius:10px;padding:14px;box-shadow:0 4px 24px #0003;font:13px/1.5 system-ui,sans-serif;text-align:left}#zhs-read-all-panel p{margin:8px 0;overflow-wrap:anywhere}#zhs-read-all-panel button{padding:5px 8px;border:1px solid #a9c5e3;border-radius:5px;background:#eff6ff;color:#123;margin:0 6px 8px 0;cursor:pointer}#zhs-read-all-panel label{display:block;margin:4px 0}#zhs-read-all-panel textarea{box-sizing:border-box;display:block;width:100%;margin:8px 0;color:#334;background:#f6f8fb;font:11px/1.5 monospace;border:1px solid #dce4ee;resize:vertical}#zhs-read-all-panel small{display:block;color:#526273}#zhs-read-all-panel [data-report]{max-height:30vh;overflow:auto;border-top:1px solid #dce4ee;margin-top:8px;padding-top:8px}#zhs-read-all-panel [data-report][hidden]{display:none}#zhs-read-all-panel [data-report] ol{padding-left:20px}';
       panel.appendChild(style);
