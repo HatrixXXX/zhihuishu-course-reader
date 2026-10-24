@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         国家安全概论 · 全部资源学习助手
 // @namespace    local.zhihuishu.course-reader
-// @version      1.0.3
+// @version      1.0.4
 // @description  遍历本课程全部必学和选学资源，打开文档和链接，顺序播放视频，支持暂停和断点继续。
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/2101609010059079680/299118*
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/learnPage/2101609010059079680/*/299118*
@@ -39,6 +39,13 @@
   }
 
   function resourceKey(nodeId, resource) { return JSON.stringify([String(nodeId), resource.id]); }
+  function cnkiUrl(value) {
+    try {
+      const parsed = new URL(value);
+      if (/^https?:$/.test(parsed.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) return parsed.href;
+    } catch (_) { /* Only an explicit CNKI address can identify a manual link. */ }
+    return null;
+  }
   function isDone(resource, record) {
     if (record?.status === 'skipped') return true;
     if (resource.kind === 'manual') return record?.status === 'skipped';
@@ -48,7 +55,8 @@
   }
   function nextResource(nodeId, resources, records) {
     const handled = Object.values(records).filter(r => r.nodeId === String(nodeId) && Number.isInteger(r.index) &&
-      (r.status === 'skipped' || (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
+      ((r.status === 'skipped' && (r.kind === 'manual' || cnkiUrl(r.url))) ||
+        (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
     return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)]) &&
       (r.kind === 'video' || !handled.some(record => record.index === r.index && record.title === r.title))) || null;
   }
@@ -81,15 +89,11 @@
           if (typeof r.mapUid === 'string' && /^\d+$/.test(r.mapUid)) target.searchParams.set('mapUid', r.mapUid);
           courseUrl = target.href;
         }
-        let url = null;
-        try {
-          const parsed = new URL(r.url);
-          if (/^https?:$/.test(parsed.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) url = parsed.href;
-        } catch (_) { /* The course position remains available without a direct link. */ }
+        const url = cnkiUrl(r.url);
         return {
           title: r.title, chapterTitle: chapter?.title || '未知知识点',
           courseUrl,
-          url,
+          url, reason: typeof r.reason === 'string' ? r.reason : null,
         };
       }),
     };
@@ -297,7 +301,7 @@
     }
     function render() {
       const report = core.progressReport(state);
-      if (progressElement) progressElement.textContent = `知识点 ${Object.values(state.chapterDone).filter(Boolean).length}/${state.chapters.length || '?'} · 已处理资源 ${report.opened + report.watched + report.platformComplete} · 待人工 ${report.skipped.length}`;
+      if (progressElement) progressElement.textContent = `已遍历知识点 ${Object.values(state.chapterDone).filter(Boolean).length}/${state.chapters.length || '?'} · 已处理资源 ${report.opened + report.watched + report.platformComplete} · 待人工 ${report.skipped.length}`;
       if (!reportElement) return;
       reportElement.hidden = state.phase !== 'finished';
       if (reportElement.hidden) return;
@@ -311,7 +315,7 @@
       const list = doc.createElement('ol');
       for (const item of report.skipped) {
         const row = doc.createElement('li');
-        row.append(`${item.chapterTitle}：${item.title} `);
+        row.append(`${item.chapterTitle}：${item.title}${item.reason ? `（${item.reason}）` : ''} `);
         if (item.courseUrl) {
           const courseLink = doc.createElement('a');
           courseLink.href = item.courseUrl;
@@ -339,16 +343,16 @@
       return env.getValue(LEASE_KEY, null)?.owner === tabId;
     }
     function ownsLease() { return env.getValue(LEASE_KEY, null)?.owner === tabId; }
-    function check() {
+    function check(allowDialog = false) {
       if (aborter?.signal.aborted || !state.running) throw aborted();
       if (!core.parseScope(win.location.href)) throw new Error('已离开指定课程，运行已停止。');
       if (env.getValue(LEASE_KEY, null)?.owner !== tabId) throw new Error('另一个标签页已接管运行。');
-      if (dom.hasBlockingDialog(doc)) throw new Error('遇到登录、验证或答题弹窗，请手动处理后继续。');
+      if (!allowDialog && dom.hasBlockingDialog(doc)) throw new Error('遇到登录、验证或答题弹窗，请手动处理后继续。');
     }
-    async function waitFor(predicate, message, timeout = time.load) {
+    async function waitFor(predicate, message, timeout = time.load, allowDialog = false) {
       const deadline = now() + timeout;
       for (;;) {
-        check();
+        check(allowDialog);
         const value = predicate();
         if (value) return value;
         if (now() >= deadline) throw new Error(message);
@@ -388,18 +392,23 @@
         return !media.paused || core.videoFinished(media);
       }, '播放器启动超时，请检查网络或手动点一次播放后继续。');
     }
-    function note(resource, nodeId, status) {
-      check();
+    function note(resource, nodeId, status, reason = null) {
+      check(status === 'skipped' || status === 'platform-complete');
       const mapUid = status === 'skipped' ? new URL(win.location.href).searchParams.get('mapUid') : null;
       const kind = resource.kind === 'unknown' && status === 'opened' && resource.url ? 'link' : resource.kind;
-      state.records[core.resourceKey(nodeId, resource)] = { title: resource.title, kind, status, nodeId, index: resource.index, url: resource.url || null, mapUid: /^\d+$/.test(mapUid || '') ? mapUid : null, at: new Date(now()).toISOString() };
+      if (status !== 'skipped' && Number.isInteger(resource.index)) {
+        for (const [key, record] of Object.entries(state.records)) {
+          if (record.status === 'skipped' && record.nodeId === nodeId && record.index === resource.index && record.title === resource.title) delete state.records[key];
+        }
+      }
+      state.records[core.resourceKey(nodeId, resource)] = { title: resource.title, kind, status, reason: status === 'skipped' ? reason : null, nodeId, index: resource.index, url: resource.url || null, mapUid: /^\d+$/.test(mapUid || '') ? mapUid : null, at: new Date(now()).toISOString() };
       save();
-      log(`${status === 'watched' ? '视频已播放结束' : status === 'platform-complete' ? '平台已显示视频完成' : status === 'skipped' ? '留待人工处理' : '已打开'}：${resource.title}`);
+      log(`${status === 'watched' ? '视频已播放结束' : status === 'platform-complete' ? '平台已显示视频完成' : status === 'skipped' ? `留待人工处理${reason ? `（${reason}）` : ''}` : '已打开'}：${resource.title}`);
     }
     function deferToManual(resource, nodeId, url = resource.url) {
       if (core.parseScope(win.location.href)?.nodeId !== nodeId) throw new Error('知识点被切换，当前资源未记入断点。');
       resource.url = url;
-      note(resource, nodeId, 'skipped');
+      note(resource, nodeId, 'skipped', '知网链接需人工处理');
     }
     function pause() {
       aborter?.abort();
@@ -520,7 +529,7 @@
       note(resource, nodeId, resource.kind === 'video' ? 'watched' : 'opened');
     }
     async function runCatalog() {
-      const items = await waitFor(() => { const list = dom.readCatalog(doc); return list.length ? list : null; }, '课程目录未加载，请刷新后重试。');
+      const items = await waitFor(() => { const list = dom.readCatalog(doc); return list.length ? list : null; }, '课程目录未加载，请刷新后重试。', time.load, true);
       // No percentage filter: electives can remain incomplete when the catalog says 100%.
       state.chapters = items.map(({ id, title }) => ({ id, title }));
       state.chapterDone = {};
@@ -528,11 +537,19 @@
       state.phase = 'learn';
       save();
       log(`扫描到 ${items.length} 个知识点，开始遍历全部资源。`);
+      const firstUrl = new URL(win.location.href);
+      firstUrl.pathname = `/learnPage/${core.COURSE}/${items[0].id}/${core.CLASS}`;
+      if (dom.hasBlockingDialog(doc)) return navigate(firstUrl.href);
       (items[0].element.querySelector('.item-mask') || items[0].element).click();
-      await waitFor(() => core.parseScope(win.location.href)?.nodeId === items[0].id, '进入知识点失败，请手动进入任一知识点后继续。');
+      try {
+        await waitFor(() => core.parseScope(win.location.href)?.nodeId === items[0].id, '进入知识点失败，请手动进入任一知识点后继续。', time.load, true);
+      } catch (error) {
+        if (error.name === 'AbortError' || !state.running || !ownsLease() || core.parseScope(win.location.href)?.page !== 'catalog') throw error;
+        return navigate(firstUrl.href);
+      }
     }
     async function run() {
-      if (core.parseScope(win.location.href).page === 'catalog') await runCatalog();
+      if (core.parseScope(win.location.href).page === 'catalog' && await runCatalog() === 'navigate') return 'navigate';
       if (!state.chapters.length) {
         state.phase = 'scan';
         return navigate(HOME);
@@ -541,21 +558,39 @@
       if (!nodeId || !state.chapters.some(c => c.id === nodeId)) throw new Error('当前知识点不在目录中，请回到课程目录重新开始。');
       state.currentNodeId = nodeId;
       save();
-      await waitFor(() => dom.readResources(doc).length > 0, '当前知识点没有可识别的资源卡片，已暂停。');
+      function canDefer(error) {
+        return error?.name !== 'AbortError' && state.running && ownsLease() && core.parseScope(win.location.href)?.nodeId === nodeId;
+      }
       // Re-read after every card: the platform updates badges and may re-render the list.
       while (true) {
-        check();
+        check(true);
         if (core.parseScope(win.location.href)?.nodeId !== nodeId) throw new Error('知识点已切换，请从断点继续。');
-        const resources = dom.readResources(doc);
-        if (!resources.length) throw new Error('资源列表消失，已暂停。');
+        let resources;
+        try {
+          resources = await waitFor(() => {
+            const list = dom.readResources(doc);
+            return list.length ? list : null;
+          }, '当前知识点没有可识别的资源卡片。', time.load, true);
+        } catch (error) {
+          if (!canDefer(error)) throw error;
+          const title = state.chapters.find(c => c.id === nodeId)?.title || nodeId;
+          note({ id: 'chapter:resources', title: `${title}（资源列表）`, kind: 'chapter', index: -1 }, nodeId, 'skipped', error.message);
+          break;
+        }
         for (const r of resources) {
-          if (r.kind === 'video' && r.completed && !state.records[core.resourceKey(nodeId, r)]) note(r, nodeId, 'platform-complete');
+          if (r.kind === 'video' && r.completed && !['watched', 'platform-complete'].includes(state.records[core.resourceKey(nodeId, r)]?.status)) note(r, nodeId, 'platform-complete');
         }
         const next = core.nextResource(nodeId, resources, state.records);
         if (!next) break;
-        await visit(next, nodeId);
+        try {
+          await visit(next, nodeId);
+        } catch (error) {
+          if (!canDefer(error)) throw error;
+          if (activeMedia) { activeMedia.pause(); activeMedia = null; }
+          note(next, nodeId, 'skipped', error.message);
+        }
       }
-      check();
+      check(true);
       state.chapterDone[nodeId] = true;
       save();
       const nextChapter = state.chapters.find(c => state.chapterDone[c.id] !== true);
@@ -585,7 +620,7 @@
       heartbeat = win.setInterval(() => { if (!claim()) pause(); }, Math.max(1000, time.lease / 3));
       task = (async () => {
         let outcome;
-        try { check(); outcome = await run(); }
+        try { check(true); outcome = await run(); }
         catch (error) {
           if (error.name !== 'AbortError') {
             state.running = false;
@@ -618,7 +653,7 @@
       panel = doc.createElement('section');
       panel.id = 'zhs-read-all-panel';
       panel.setAttribute('aria-label', '全资源学习助手');
-      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.3</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>知网待验证链接留待人工处理；其他验证、答题或加载异常会暂停。</small><section data-report hidden></section>';
+      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.4</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>资源异常会列入待人工清单并继续遍历；手动暂停或离开课程仍会停止。</small><section data-report hidden></section>';
       const style = doc.createElement('style');
       style.textContent = '#zhs-read-all-panel{position:fixed;right:20px;bottom:20px;z-index:2147483646;width:350px;max-width:90vw;background:#fff;color:#17212d;border:1px solid #c7d5e4;border-radius:10px;padding:14px;box-shadow:0 4px 24px #0003;font:13px/1.5 system-ui,sans-serif;text-align:left}#zhs-read-all-panel p{margin:8px 0;overflow-wrap:anywhere}#zhs-read-all-panel button{padding:5px 8px;border:1px solid #a9c5e3;border-radius:5px;background:#eff6ff;color:#123;margin:0 6px 8px 0;cursor:pointer}#zhs-read-all-panel label{display:block;margin:4px 0}#zhs-read-all-panel textarea{box-sizing:border-box;display:block;width:100%;margin:8px 0;color:#334;background:#f6f8fb;font:11px/1.5 monospace;border:1px solid #dce4ee;resize:vertical}#zhs-read-all-panel small{display:block;color:#526273}#zhs-read-all-panel [data-report]{max-height:30vh;overflow:auto;border-top:1px solid #dce4ee;margin-top:8px;padding-top:8px}#zhs-read-all-panel [data-report][hidden]{display:none}#zhs-read-all-panel [data-report] ol{padding-left:20px}';
       panel.appendChild(style);

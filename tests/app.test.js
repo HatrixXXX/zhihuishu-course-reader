@@ -10,7 +10,7 @@ const home = 'https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/kno
 function card(title, icon, done = false) {
   return `<div class="basic-info-video-card-container"><div class="icon-box ${icon}"></div><h5 class="video-title common-text">${title}</h5><div class="finished-icon">${done ? '已完成' : '0%'}</div></div>`;
 }
-function harness({ html = '', url = learn, store = new Map(), tabId = 'tab-a', step = () => {}, popup = true } = {}) {
+function harness({ html = '', url = learn, store = new Map(), tabId = 'tab-a', step = () => {}, popup = true, advanceVideo = true } = {}) {
   const page = new JSDOM(`<body>${html}<div class="video-player-wrapper" style="display:none"><video></video></div></body>`, { url });
   const window = page.window;
   const document = window.document;
@@ -57,7 +57,7 @@ function harness({ html = '', url = learn, store = new Map(), tabId = 'tab-a', s
     sleep: (ms, signal) => new Promise((resolve, reject) => setImmediate(() => {
       now += ms;
       if (signal?.aborted) return reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-      if (playing) { time = Math.min(2, time + 0.5); if (time === 2) { ended = true; playing = false; } }
+      if (playing && advanceVideo) { time = Math.min(2, time + 0.5); if (time === 2) { ended = true; playing = false; } }
       step({ app, window, document, now, playing, time, video });
       if (signal?.aborted) return reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
       resolve();
@@ -116,25 +116,43 @@ test('a second tab cannot acquire a live lease or stop the first tab by mounting
   } finally { h.close(); }
 });
 
-test('external card that never opens a destination pauses with no successful record', async () => {
-  const h = harness({ html: card('外链', 'zhihu'), popup: false });
+test('an external card that never opens a destination is reported and later cards continue', async () => {
+  const h = harness({ html: card('外链', 'zhihu') + card('后续讲义.pptx', 'other'), popup: false });
   try {
     await h.app.start();
-    assert.deepEqual(h.app.getState().records, {});
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.deepEqual(h.clicks, ['外链', '后续讲义.pptx']);
     assert.equal(h.app.getState().running, false);
-    assert.match(h.document.querySelector('#zhs-read-all-panel').textContent, /外链|链接/);
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /外链未打开/);
   } finally { h.close(); }
 });
 
-test('unsupported resources fail visibly rather than marking the chapter complete', async () => {
-  const h = harness({ html: card('无法识别的资源', 'unknown-platform') });
+test('unsupported resources are reported and traversal continues', async () => {
+  const h = harness({ html: card('无法识别的资源', 'unknown-platform') + card('后续讲义.pptx', 'other') });
   try {
     await h.app.start();
     assert.equal(h.app.getState().running, false);
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
-    assert.deepEqual(h.app.getState().records, {});
-    assert.match(h.document.querySelector('#zhs-read-all-panel').textContent, /识别/);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.deepEqual(h.clicks, ['无法识别的资源', '后续讲义.pptx']);
+    assert.match(h.document.querySelector('[data-report]').textContent, /无法识别资源类型/);
+  } finally { h.close(); }
+});
+
+test('a card that reveals a document after inspection clears its earlier deferred record', async () => {
+  const h = harness({ html: card('神秘讲义', 'unknown-platform') });
+  const heading = h.document.querySelector('h5');
+  heading.addEventListener('click', () => {
+    const cardElement = heading.closest('.basic-info-video-card-container');
+    cardElement.querySelector('.icon-box').className = 'icon-box other';
+    if (!cardElement.querySelector('.page-num')) cardElement.insertAdjacentHTML('beforeend', '<div class="page-num">2页</div>');
+  });
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['opened']);
+    assert.equal(core.progressReport(h.app.getState()).skipped.length, 0);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
   } finally { h.close(); }
 });
 
@@ -176,7 +194,7 @@ test('dynamic CNKI destinations are deferred without opening tabs while ordinary
   } finally { h.close(); }
 });
 
-test('an unrelated unknown card pauses any media started during link inspection', async () => {
+test('an unrelated unknown card stops media started during link inspection and is deferred', async () => {
   const h = harness({ html: card('未标注的视频', 'unknown-platform') });
   h.document.querySelector('h5').addEventListener('click', () => {
     h.document.querySelector('.video-player-wrapper').style.display = '';
@@ -185,9 +203,9 @@ test('an unrelated unknown card pauses any media started during link inspection'
   });
   try {
     await h.app.start();
-    assert.deepEqual(h.app.getState().records, {});
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
     assert.equal(h.video.paused, true);
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
   } finally { h.close(); }
 });
 
@@ -252,8 +270,8 @@ test('unknown cards cannot turn blank, relative, or course URLs into successful 
     h.document.querySelector('h5').addEventListener('click', () => h.window.open(target));
     try {
       await h.app.start();
-      assert.deepEqual(h.app.getState().records, {}, String(target));
-      assert.equal(h.app.getState().chapterDone[nodeId], undefined, String(target));
+      assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped'], String(target));
+      assert.equal(h.app.getState().chapterDone[nodeId], true, String(target));
       assert.deepEqual(h.popups, [], String(target));
     } finally { h.close(); }
   }
@@ -288,6 +306,18 @@ test('catalog scanning includes 100 percent nodes and both modules', async () =>
   } finally { h.close(); }
 });
 
+test('a visible dialog on the catalog still allows scanning and direct navigation to the first node', async () => {
+  const html = `<div role="dialog">请完成验证码</div><div id="knowledgeId-${nodeId}"><div class="item-title">知识点一</div></div>`;
+  const h = harness({ html, url: home });
+  try {
+    await h.app.start();
+    assert.deepEqual(h.app.getState().chapters.map(c => c.id), [nodeId]);
+    assert.equal(h.navigations.length, 1);
+    assert.equal(new URL(h.navigations[0]).pathname, `/learnPage/2101609010059079680/${nodeId}/299118`);
+    assert.equal(h.app.getState().running, true);
+  } finally { h.close(); }
+});
+
 test('wrong course creates no controls and cannot execute clicks', async () => {
   const h = harness({ html: card('一.pptx', 'other'), url: home.replace('299118', '299119') });
   try {
@@ -297,12 +327,14 @@ test('wrong course creates no controls and cannot execute clicks', async () => {
   } finally { h.close(); }
 });
 
-test('login or quiz dialog pauses before processing any resource', async () => {
-  const h = harness({ html: `<div role="dialog">请完成验证码</div>${card('一.pptx', 'other')}` });
+test('login or quiz dialog defers affected resources without clicking them', async () => {
+  const h = harness({ html: `<div role="dialog">请完成验证码</div>${card('一.pptx', 'other')}${card('二.pptx', 'other')}` });
   try {
     await h.app.start();
     assert.deepEqual(h.clicks, []);
-    assert.deepEqual(h.app.getState().records, {});
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'skipped']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /验证或答题弹窗/);
   } finally { h.close(); }
 });
 
@@ -337,9 +369,69 @@ test('a stale visible player cannot mark a different resource as watched', async
   });
   try {
     await h.app.start();
-    assert.equal(Object.keys(h.app.getState().records).length, 1);
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
-    assert.match(h.document.querySelector('#zhs-read-all-panel').textContent, /未加载|未切换/);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['watched', 'skipped']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /未加载|未切换/);
+  } finally { h.close(); }
+});
+
+test('a video that cannot start is deferred while later resources continue', async () => {
+  const h = harness({ html: card('受阻视频', 'video') + card('后续讲义.pptx', 'other') });
+  h.video.play = () => Promise.reject(new Error('autoplay blocked'));
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.deepEqual(h.clicks, ['受阻视频', '后续讲义.pptx']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /自动播放/);
+  } finally { h.close(); }
+});
+
+test('a chapter with no loadable resource list is reported and traversal finishes', async () => {
+  const h = harness({ html: '' });
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /资源卡片/);
+  } finally { h.close(); }
+});
+
+test('a stalled video is deferred without blocking the following document', async () => {
+  const h = harness({ html: card('停滞视频', 'video') + card('后续讲义.pptx', 'other'), advanceVideo: false });
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.equal(h.video.paused, true);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /没有播放进展/);
+  } finally { h.close(); }
+});
+
+test('a video later marked complete by the platform clears its deferred status', async () => {
+  const h = harness({ html: card('已完成视频', 'video', true) });
+  const state = h.app.getState();
+  const resource = { id: `video:${encodeURIComponent('已完成视频')}:1` };
+  state.records[core.resourceKey(nodeId, resource)] = { title: '已完成视频', kind: 'video', status: 'skipped', nodeId, index: 0, reason: '上次播放失败' };
+  h.store.set(STORAGE_KEY, structuredClone(state));
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['platform-complete']);
+    assert.equal(core.progressReport(h.app.getState()).skipped.length, 0);
+  } finally { h.close(); }
+});
+
+test('a deferred resource still advances to the next knowledge point', async () => {
+  const h = harness({ html: card('无法识别的资源', 'unknown-platform') });
+  const state = h.app.getState();
+  state.chapters.push({ id: '1959274810743853056', title: '下一知识点' });
+  h.store.set(STORAGE_KEY, structuredClone(state));
+  try {
+    await h.app.start();
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.equal(h.navigations.length, 1);
+    assert.equal(h.app.getState().running, true);
   } finally { h.close(); }
 });
 
@@ -385,18 +477,18 @@ test('switching a document during dwell cannot count the previous document as op
   } });
   try {
     await h.app.start();
-    assert.deepEqual(h.app.getState().records, {});
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
   } finally { h.close(); }
 });
 
-test('a visible preview error prevents document success', async () => {
+test('a visible preview error defers the document without counting it as opened', async () => {
   const h = harness({ html: card('一.pptx', 'other') + '<div class="document-preview"><div role="alert">文档加载失败，请重试</div></div>' });
   try {
     await h.app.start();
-    assert.deepEqual(h.app.getState().records, {});
-    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
-    assert.match(h.document.querySelector('#zhs-read-all-panel').textContent, /加载失败/);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.match(h.document.querySelector('[data-report]').textContent, /加载失败/);
   } finally { h.close(); }
 });
 

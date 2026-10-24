@@ -57,17 +57,25 @@ test('manual resources stay skipped after restoring progress and appear in the r
   assert.deepEqual(core.progressReport(restored).skipped, [{
     title: '颠覆性技术与科技安全', chapterTitle: '科技安全',
     courseUrl: `https://ai-smart-course-student-pro.zhihuishu.com/learnPage/2101609010059079680/${nodeId}/299118?mapUid=1942422359894003712`,
-    url: 'https://kns.cnki.net/kcms/detail/1',
+    url: 'https://kns.cnki.net/kcms/detail/1', reason: null,
   }]);
 });
 
 test('a confirmed dynamic CNKI skip remains done even when its card icon is unknown', () => {
   const resource = { id: 'unknown:cnki:1', kind: 'unknown', title: '同一知网资料', index: 0 };
   const nodeId = '1942858164356464640';
-  const records = { [core.resourceKey(nodeId, resource)]: { status: 'skipped', nodeId, title: resource.title, index: resource.index } };
+  const records = { [core.resourceKey(nodeId, resource)]: { status: 'skipped', kind: 'unknown', url: 'https://kns.cnki.net/kcms/detail/2', nodeId, title: resource.title, index: resource.index } };
   assert.equal(core.nextResource(nodeId, [resource], records), null);
   assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:cnki:1', kind: 'link' }], records), null);
   assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:cnki:1', kind: 'link', index: 1 }], records).index, 1);
+});
+
+test('a generic failed card is retried when the platform reveals a supported type', () => {
+  const nodeId = '1942858164356464640';
+  const unknown = { id: 'unknown:item:1', kind: 'unknown', title: '资料', index: 0 };
+  const document = { ...unknown, id: 'document:item:1', kind: 'document' };
+  const records = { [core.resourceKey(nodeId, unknown)]: { status: 'skipped', kind: 'unknown', title: '资料', index: 0, nodeId, reason: '无法识别资源类型' } };
+  assert.equal(core.nextResource(nodeId, [document], records), document);
 });
 
 test('an unknown card is complete only after a real external link was opened', () => {

@@ -38,7 +38,9 @@ PPT、文档和图文会逐项打开并停留 3 秒；外链会打开到后台�
 未完成的平台视频默认静音、1 倍速播放到结束；平台已明确显示完成的视频会跳过。
 已确认的知网安全验证链接会留待人工处理，脚本继续扫描后面的资源，不会将其记为已打开。
 全部遍历后，右下角显示统计报告、待人工处理清单和对应的课程位置链接；卡片带有知网直链时也会列出。
-请按清单返回课程页面，手动完成这些资源。其他登录、验证、答题或加载异常仍会暂停，处理后可继续运行。
+其他单项资源若遇到登录、验证、答题、加载失败或视频长时间不前进，也会记录原因并继续遍历，不会误记为已完成。
+请在全部知识点遍历后按清单返回课程页面，手动完成待处理资源。手动暂停、离开课程或被另一标签页接管仍会停止运行。
+如果课程目录本身无法加载知识点清单，必须先登录或刷新页面；浏览器休眠时脚本也无法执行。
 
 四、换电脑后的记录
 平台学习进度保存在智慧树账号中。这个工具的断点保存在各台电脑自己的脚本管理器里，本安装包不会迁移旧电脑的断点。
@@ -67,7 +69,7 @@ textarea{{box-sizing:border-box;width:100%;height:260px;border:1px solid #cbd5e1
 <button id="copy">复制脚本</button><a class="action" href="{course}" target="_blank" rel="noopener">打开课程目录</a>
 <p id="status" role="status">等待复制。</p>
 <details><summary>查看脚本全文 / 手动复制</summary><button id="select">选中代码</button><textarea id="source" readonly aria-label="课程助手脚本全文">{source_html}</textarea></details>
-<p><small>包括必学和选学。文档、外链逐项打开，视频正常播放；知网待验证链接在遍历报告中留待人工处理。其他暂停或异常的处理方式见“安装说明.txt”。</small></p>
+<p><small>包括必学和选学。文档、外链逐项打开，视频正常播放；资源异常会留待人工处理并继续遍历。手动暂停及其他停止条件见“安装说明.txt”。</small></p>
 </main><script>
 const source = document.getElementById('source');
 const status = document.getElementById('status');

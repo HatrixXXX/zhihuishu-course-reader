@@ -8,7 +8,7 @@
 
 ## 下载
 
-- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.3.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
+- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.4.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
 - [直接安装用户脚本](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/course-reader.user.js)：浏览器已安装篡改猴或脚本猫时，可通过管理器安装。
 - [版本与下载列表](https://github.com/HatrixXXX/zhihuishu-course-reader/releases)。
 
@@ -31,9 +31,13 @@
 
 “清除本地断点”只清除本工具的记录。清除后文档和链接会重新打开，平台已经完成的视频仍会跳过。
 
-## 暂停和异常
+## 自动继续和异常
 
-除上述知网待验证链接外，出现登录、验证、答题弹窗，视频加载失败、长时间不前进，或遇到无法识别的资源时，工具会暂停并在日志中说明原因。处理页面问题后，再点击“开始/继续”。
+单项资源遇到登录、验证、答题弹窗，视频加载失败或长时间不前进，文档预览失败、外链无法打开，或资源类型仍无法识别时，会记录原因并继续后续资源；资源列表始终无法加载时，会将整个知识点列入待人工处理。最终报告提供待处理项目和课程位置链接。跳过的视频不会记为已播放结束，跳过的文档和链接不会记为已打开。
+
+手动点击“暂停”、离开指定课程、手动切换知识点，或另一个标签页接管时，运行仍会停止，以免写入错误断点。平台弹窗可能导致后续多项资源连续列入待人工清单，脚本不会绕过验证或代答。
+
+如果课程目录本身无法加载知识点清单，工具无法确定后续章节，仍需先登录或刷新页面。浏览器休眠或完全挂起标签页时，脚本也无法继续执行。
 
 如果提示另一个标签页正在运行，请回到那个标签页暂停。那个页面已经关闭时，等待约 15 秒后再开始。
 

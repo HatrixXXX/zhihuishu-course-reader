@@ -21,6 +21,13 @@
   }
 
   function resourceKey(nodeId, resource) { return JSON.stringify([String(nodeId), resource.id]); }
+  function cnkiUrl(value) {
+    try {
+      const parsed = new URL(value);
+      if (/^https?:$/.test(parsed.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) return parsed.href;
+    } catch (_) { /* Only an explicit CNKI address can identify a manual link. */ }
+    return null;
+  }
   function isDone(resource, record) {
     if (record?.status === 'skipped') return true;
     if (resource.kind === 'manual') return record?.status === 'skipped';
@@ -30,7 +37,8 @@
   }
   function nextResource(nodeId, resources, records) {
     const handled = Object.values(records).filter(r => r.nodeId === String(nodeId) && Number.isInteger(r.index) &&
-      (r.status === 'skipped' || (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
+      ((r.status === 'skipped' && (r.kind === 'manual' || cnkiUrl(r.url))) ||
+        (r.status === 'opened' && r.kind === 'link' && /^https?:\/\//.test(r.url || ''))));
     return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)]) &&
       (r.kind === 'video' || !handled.some(record => record.index === r.index && record.title === r.title))) || null;
   }
@@ -63,15 +71,11 @@
           if (typeof r.mapUid === 'string' && /^\d+$/.test(r.mapUid)) target.searchParams.set('mapUid', r.mapUid);
           courseUrl = target.href;
         }
-        let url = null;
-        try {
-          const parsed = new URL(r.url);
-          if (/^https?:$/.test(parsed.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) url = parsed.href;
-        } catch (_) { /* The course position remains available without a direct link. */ }
+        const url = cnkiUrl(r.url);
         return {
           title: r.title, chapterTitle: chapter?.title || '未知知识点',
           courseUrl,
-          url,
+          url, reason: typeof r.reason === 'string' ? r.reason : null,
         };
       }),
     };
