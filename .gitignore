@@ -1,0 +1,9 @@
+node_modules/
+.codex-cache/
+.codex-tmp/
+releases/
+docs/superpowers/
+__pycache__/
+*.pyc
+*.log
+Snipaste_*
