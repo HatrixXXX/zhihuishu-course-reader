@@ -4,6 +4,10 @@
   const HOST = 'https://ai-smart-course-student-pro.zhihuishu.com';
   const COURSE_ID = '2101609010059079680';
   const CLASS_ID = '299118';
+  const CONFIRMED_CNKI_TITLES = new Set([
+    '颠覆性技术与科技安全',
+    '军民融合型科技工业协同创新体系构建研究——基于国际比较视角',
+  ]);
 
   function text(value) {
     return (value || '').replace(/\s+/g, ' ').trim();
@@ -46,19 +50,26 @@
     return result;
   }
 
+  function cnkiDestination(value, base) {
+    try {
+      const url = new URL(String(value), base);
+      if (/^https?:$/.test(url.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(url.hostname)) return url.href;
+    } catch (_) { /* Ignore malformed links. */ }
+    return null;
+  }
+
   function cnkiUrl(element) {
     for (const anchor of element.querySelectorAll('a[href]')) {
-      try {
-        const url = new URL(anchor.getAttribute('href'), element.ownerDocument.baseURI);
-        if (url.protocol === 'https:' && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(url.hostname)) return url.href;
-      } catch (_) { /* Ignore malformed card links. */ }
+      const url = cnkiDestination(anchor.getAttribute('href'), element.ownerDocument.baseURI);
+      if (url) return url;
     }
     return null;
   }
 
   function resourceKind(element, title, manualUrl) {
+    if (manualUrl) return 'manual';
     if (element.querySelector('.icon-box.video') || /\.(?:mp4|webm|m4v|mov|m3u8)$/i.test(title)) return 'video';
-    if (manualUrl || title === '颠覆性技术与科技安全') return 'manual';
+    if (CONFIRMED_CNKI_TITLES.has(title)) return 'manual';
     if (element.querySelector('.icon-box.zhihu, .icon-box.link')) return 'link';
     if (/\.(?:pdf|pptx?|docx?|xlsx?|odt|odp|epub)$/i.test(title)) return 'document';
     if (element.querySelector('.icon-box.other') && /^\d+\s*页$/.test(text(element.querySelector('.page-num')?.textContent))) return 'document';
@@ -135,7 +146,7 @@
     return false;
   }
 
-  const dom = { readCatalog, readResources, readPage, findMedia, isResourceSelected, hasBlockingDialog };
+  const dom = { readCatalog, readResources, readPage, findMedia, isResourceSelected, hasBlockingDialog, cnkiDestination };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = dom;
   else {

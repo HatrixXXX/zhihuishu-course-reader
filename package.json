@@ -1,6 +1,6 @@
 {
   "name": "zhihuishu-course-reader",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Course-specific resource traversal using normal browser playback",
   "scripts": {

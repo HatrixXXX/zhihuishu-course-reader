@@ -53,7 +53,7 @@ function harness({ html = '', url = learn, store = new Map(), tabId = 'tab-a', s
     openInTab: (url, options) => { const h = { url, options, closed: false, close() { this.closed = true; } }; popups.push(h); return h; },
     navigate: url => navigations.push(url),
     now: () => now,
-    timings: { poll: 5, settle: 10, dwell: 20, load: 120, stall: 150, lease: 1000 },
+    timings: { poll: 5, settle: 10, probe: 40, dwell: 20, load: 120, stall: 150, lease: 1000 },
     sleep: (ms, signal) => new Promise((resolve, reject) => setImmediate(() => {
       now += ms;
       if (signal?.aborted) return reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
@@ -139,17 +139,71 @@ test('unsupported resources fail visibly rather than marking the chapter complet
 });
 
 test('known CNKI resource is skipped, later resources continue, and final report links back to the chapter', async () => {
-  const h = harness({ html: card('颠覆性技术与科技安全', 'unknown-platform') + card('后续讲义.pptx', 'other') });
+  const h = harness({ html: card('颠覆性技术与科技安全', 'unknown-platform') +
+    card('军民融合型科技工业协同创新体系构建研究——基于国际比较视角', 'unknown-platform') + card('后续讲义.pptx', 'other') });
   try {
     await h.app.start();
     assert.deepEqual(h.clicks, ['后续讲义.pptx']);
-    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'skipped', 'opened']);
     assert.equal(h.app.getState().phase, 'finished');
     assert.equal(h.app.getState().chapterDone[nodeId], true);
     const report = h.document.querySelector('[data-report]');
     assert.equal(report.hidden, false);
     assert.match(report.textContent, /颠覆性技术与科技安全/);
+    assert.match(report.textContent, /军民融合型科技工业协同创新体系构建研究/);
+    assert.equal(report.querySelectorAll('li').length, 2);
     assert.equal(report.querySelector('a').href, learn);
+  } finally { h.close(); }
+});
+
+test('dynamic CNKI destinations are deferred without opening tabs while ordinary links still open', async () => {
+  const h = harness({ html: card('动态知网资料', 'unknown-platform') + card('知网外链', 'link') + card('普通外链', 'zhihu') });
+  const headings = h.document.querySelectorAll('.basic-info-video-card-container h5');
+  headings[0].addEventListener('click', () => {
+    h.document.querySelector('.basic-info-video-card-container .icon-box').className = 'icon-box link';
+    h.window.open('https://kns.cnki.net/kcms/detail/2');
+  });
+  headings[1].addEventListener('click', () => h.window.open('http://www.cnki.net/article'));
+  try {
+    await h.app.start();
+    assert.deepEqual(h.clicks, ['动态知网资料', '知网外链', '普通外链']);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'skipped', 'opened']);
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    assert.deepEqual(h.popups.map(p => p.url), ['https://example.org/reading']);
+    const links = [...h.document.querySelectorAll('[data-report] a')].map(a => a.href);
+    assert.ok(links.includes('https://kns.cnki.net/kcms/detail/2'));
+    assert.ok(links.includes('http://www.cnki.net/article'));
+  } finally { h.close(); }
+});
+
+test('an unrelated unknown card pauses any media started during link inspection', async () => {
+  const h = harness({ html: card('未标注的视频', 'unknown-platform') });
+  h.document.querySelector('h5').addEventListener('click', () => {
+    h.document.querySelector('.video-player-wrapper').style.display = '';
+    h.video.setAttribute('src', 'https://media.example/unknown.mp4');
+    h.video.play();
+  });
+  try {
+    await h.app.start();
+    assert.deepEqual(h.app.getState().records, {});
+    assert.equal(h.video.paused, true);
+    assert.equal(h.app.getState().chapterDone[nodeId], undefined);
+  } finally { h.close(); }
+});
+
+test('a CNKI popup scheduled after the initial settle delay is still deferred', async () => {
+  let launched = false;
+  const h = harness({
+    html: card('延迟打开的知网资料', 'unknown-platform'),
+    step: ({ now, window }) => {
+      if (!launched && now >= 1020) { launched = true; window.open('https://kns.cnki.net/kcms/detail/4'); }
+    },
+  });
+  try {
+    await h.app.start();
+    assert.equal(launched, true);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
+    assert.deepEqual(h.popups, []);
   } finally { h.close(); }
 });
 

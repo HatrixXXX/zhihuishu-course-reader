@@ -61,6 +61,15 @@ test('manual resources stay skipped after restoring progress and appear in the r
   }]);
 });
 
+test('a confirmed dynamic CNKI skip remains done even when its card icon is unknown', () => {
+  const resource = { id: 'unknown:cnki:1', kind: 'unknown', title: '同一知网资料', index: 0 };
+  const nodeId = '1942858164356464640';
+  const records = { [core.resourceKey(nodeId, resource)]: { status: 'skipped', nodeId, title: resource.title, index: resource.index } };
+  assert.equal(core.nextResource(nodeId, [resource], records), null);
+  assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:cnki:1', kind: 'link' }], records), null);
+  assert.equal(core.nextResource(nodeId, [{ ...resource, id: 'link:cnki:1', kind: 'link', index: 1 }], records).index, 1);
+});
+
 test('video must report a real ended state rather than just near-end position', () => {
   assert.equal(core.videoFinished({ ended: false, currentTime: 9.99, duration: 10 }), false);
   assert.equal(core.videoFinished({ ended: true, currentTime: 10, duration: 10 }), true);

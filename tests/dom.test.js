@@ -96,15 +96,20 @@ test('readResources uses clear type evidence and keeps unrecognized cards unknow
 test('CNKI resources are reserved for manual study without classifying unrelated cards as documents', () => {
   const document = page([
     card({ title: '颠覆性技术与科技安全', icon: 'mystery' }),
+    card({ title: '军民融合型科技工业协同创新体系构建研究——基于国际比较视角', icon: 'mystery' }),
     card({ title: '另一篇文章', icon: 'link', extra: '<a href="https://kns.cnki.net/kcms/detail/1">知网</a>' }),
+    card({ title: '旧版知网入口', icon: 'link', extra: '<a href="http://www.cnki.net/article">知网</a>' }),
+    card({ title: '错误标成视频的知网卡片', icon: 'video', extra: '<a href="https://kns.cnki.net/kcms/detail/3">知网</a>' }),
     card({ title: '普通书籍', icon: 'book' }),
     card({ title: '普通幻灯片', icon: 'ppt' }),
     card({ title: '待识别材料', icon: 'other' }),
     card({ title: '知网检索方法', icon: 'link', extra: '<a href="https://example.org/article">普通外链</a>' }),
+    card({ title: '伪知网地址', icon: 'link', extra: '<a href="https://cnki.net.evil.example/article">普通外链</a>' }),
   ].join(''));
   const resources = dom.readResources(document);
-  assert.deepEqual(resources.map(resource => resource.kind), ['manual', 'manual', 'unknown', 'unknown', 'unknown', 'link']);
-  assert.equal(resources[1].url, 'https://kns.cnki.net/kcms/detail/1');
+  assert.deepEqual(resources.map(resource => resource.kind), ['manual', 'manual', 'manual', 'manual', 'manual', 'unknown', 'unknown', 'unknown', 'link', 'link']);
+  assert.equal(resources[2].url, 'https://kns.cnki.net/kcms/detail/1');
+  assert.equal(resources[3].url, 'http://www.cnki.net/article');
 });
 
 test('resource IDs distinguish duplicate titles and remain stable across badge changes', () => {

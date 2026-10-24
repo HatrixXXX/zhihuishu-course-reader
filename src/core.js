@@ -22,12 +22,15 @@
 
   function resourceKey(nodeId, resource) { return JSON.stringify([String(nodeId), resource.id]); }
   function isDone(resource, record) {
+    if (record?.status === 'skipped') return true;
     if (resource.kind === 'manual') return record?.status === 'skipped';
     if (resource.kind === 'video') return resource.completed === true || ['watched', 'platform-complete'].includes(record?.status);
     return resource.kind !== 'unknown' && record?.status === 'opened';
   }
   function nextResource(nodeId, resources, records) {
-    return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)])) || null;
+    const skipped = Object.values(records).filter(r => r.status === 'skipped' && r.nodeId === String(nodeId) && Number.isInteger(r.index));
+    return resources.find(r => !isDone(r, records[resourceKey(nodeId, r)]) &&
+      !skipped.some(record => record.index === r.index && record.title === r.title)) || null;
   }
   function videoFinished(media) {
     return media?.ended === true && Number.isFinite(media.duration) && media.duration > 0 &&
@@ -61,7 +64,7 @@
         let url = null;
         try {
           const parsed = new URL(r.url);
-          if (parsed.protocol === 'https:' && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) url = parsed.href;
+          if (/^https?:$/.test(parsed.protocol) && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) url = parsed.href;
         } catch (_) { /* The course position remains available without a direct link. */ }
         return {
           title: r.title, chapterTitle: chapter?.title || '未知知识点',
