@@ -50,12 +50,15 @@
     return !lease || lease.owner === owner || !Number.isFinite(lease.expires) || lease.expires <= now;
   }
   function restoreProgress(raw) {
-    const empty = { version: 1, courseId: COURSE, classId: CLASS, running: false, owner: null, chapters: [], chapterDone: {}, records: {}, currentNodeId: null };
+    const empty = { version: 1, courseId: COURSE, classId: CLASS, running: false, owner: null, chapters: [], chapterDone: {}, records: {}, currentNodeId: null, navigation: null };
     if (!raw || raw.version !== 1 || raw.courseId !== COURSE || raw.classId !== CLASS || !Array.isArray(raw.chapters) || !raw.records || typeof raw.records !== 'object') return empty;
     const chapters = raw.chapters.filter(c => c && typeof c.id === 'string' && /^\d+$/.test(c.id) && typeof c.title === 'string').map(c => ({ id: c.id, title: c.title }));
     const records = Object.fromEntries(Object.entries(raw.records).filter(([, r]) => r && ['opened', 'watched', 'platform-complete', 'skipped'].includes(r.status)));
     const phase = ['scan', 'learn', 'finished'].includes(raw.phase) ? raw.phase : null;
-    return { ...empty, chapters, records, phase, chapterDone: raw.chapterDone && typeof raw.chapterDone === 'object' ? { ...raw.chapterDone } : {}, currentNodeId: typeof raw.currentNodeId === 'string' ? raw.currentNodeId : null, running: raw.running === true && (chapters.length > 0 || phase === 'scan') && typeof raw.owner === 'string', owner: typeof raw.owner === 'string' ? raw.owner : null };
+    const pending = raw.navigation;
+    const navigation = pending && pending.owner === raw.owner && typeof pending.owner === 'string' && typeof pending.url === 'string' && parseScope(pending.url) && Number.isFinite(pending.expires)
+      ? { owner: pending.owner, url: new URL(pending.url).href, expires: pending.expires } : null;
+    return { ...empty, chapters, records, phase, navigation, chapterDone: raw.chapterDone && typeof raw.chapterDone === 'object' ? { ...raw.chapterDone } : {}, currentNodeId: typeof raw.currentNodeId === 'string' ? raw.currentNodeId : null, running: raw.running === true && (chapters.length > 0 || phase === 'scan') && typeof raw.owner === 'string', owner: typeof raw.owner === 'string' ? raw.owner : null };
   }
   function progressReport(state) {
     const records = Object.values(state.records);

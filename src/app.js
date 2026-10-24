@@ -15,7 +15,7 @@
     const { window: win, document: doc } = env;
     const pageWindow = env.pageWindow || win;
     const now = env.now || Date.now;
-    const time = { poll: 1000, settle: 1500, probe: 5000, dwell: 3000, load: 30000, stall: 90000, lease: 15000, ...env.timings };
+    const time = { poll: 1000, settle: 1500, probe: 5000, dwell: 3000, load: 30000, stall: 90000, lease: 15000, handoff: 300000, ...env.timings };
     const tabId = env.tabId;
     let state = core.restoreProgress(env.getValue(STORAGE_KEY, null));
     let panel, statusElement, progressElement, logElement, muteControl, reportElement;
@@ -151,13 +151,16 @@
     function pause() {
       aborter?.abort();
       if (activeMedia) activeMedia.pause();
-      if (state.owner === tabId) { state.running = false; if (ownsLease()) save(); else render(); }
+      if (state.owner === tabId) { state.running = false; state.navigation = null; if (ownsLease()) save(); else render(); }
       log('已暂停，可从断点继续。');
     }
     function navigate(url) {
+      const target = new URL(url, win.location.href).href;
+      if (!core.parseScope(target)) throw new Error('目标页面不在指定课程内，无法继续导航。');
+      state.navigation = { owner: tabId, url: target, expires: now() + time.handoff };
       save();
       log('正在进入下一个页面，页面加载后继续。');
-      (env.navigate || (value => win.location.assign(value)))(url);
+      (env.navigate || (value => win.location.assign(value)))(target);
       return 'navigate';
     }
     async function openLink(resource, probeUnknown = false) {
@@ -277,14 +280,7 @@
       log(`扫描到 ${items.length} 个知识点，开始遍历全部资源。`);
       const firstUrl = new URL(win.location.href);
       firstUrl.pathname = `/learnPage/${core.COURSE}/${items[0].id}/${core.CLASS}`;
-      if (dom.hasBlockingDialog(doc)) return navigate(firstUrl.href);
-      (items[0].element.querySelector('.item-mask') || items[0].element).click();
-      try {
-        await waitFor(() => core.parseScope(win.location.href)?.nodeId === items[0].id, '进入知识点失败，请手动进入任一知识点后继续。', time.load, true);
-      } catch (error) {
-        if (error.name === 'AbortError' || !state.running || !ownsLease() || core.parseScope(win.location.href)?.page !== 'catalog') throw error;
-        return navigate(firstUrl.href);
-      }
+      return navigate(firstUrl.href);
     }
     async function run() {
       if (core.parseScope(win.location.href).page === 'catalog' && await runCatalog() === 'navigate') return 'navigate';
@@ -354,7 +350,9 @@
       aborter = new win.AbortController();
       state.running = true;
       state.owner = tabId;
+      state.navigation = null;
       save();
+      log('正在继续遍历，等待当前页面资源加载。');
       heartbeat = win.setInterval(() => { if (!claim()) pause(); }, Math.max(1000, time.lease / 3));
       task = (async () => {
         let outcome;
@@ -379,10 +377,28 @@
       return task;
     }
     function resume() {
-      if (!state.running || state.owner !== tabId) return Promise.resolve();
+      if (task) return task;
+      state = core.restoreProgress(env.getValue(STORAGE_KEY, null));
+      if (!state.running) return Promise.resolve();
       const scope = core.parseScope(win.location.href);
+      if (!scope) return Promise.resolve();
+      const pending = state.navigation;
+      const target = core.parseScope(pending?.url);
+      const planned = pending?.owner === state.owner && pending.expires > now() && target?.page === scope.page && target.nodeId === scope.nodeId;
+      if (state.owner !== tabId) {
+        if (!planned) { log('当前页面未接续上一页；可点击开始/继续，或检查另一个课程标签页。'); return Promise.resolve(); }
+        const lease = env.getValue(LEASE_KEY, null);
+        if (!core.leaseAvailable(lease, state.owner, now())) { log('另一个课程标签页正在运行，当前页未接续。'); return Promise.resolve(); }
+        env.setValue(LEASE_KEY, { owner: tabId, expires: now() + time.lease });
+        if (!ownsLease()) { log('页面接续未取得运行权，请检查其他课程标签页。'); return Promise.resolve(); }
+        state.owner = tabId;
+        state.navigation = null;
+        save();
+        log('已自动接续上一页，继续遍历。');
+      }
       if (scope?.page === 'learn' && state.currentNodeId && scope.nodeId !== state.currentNodeId) {
-        state.running = false; save(); log('检测到手动切换知识点，已暂停，请点击开始/继续。'); return Promise.resolve();
+        if (!planned) { state.running = false; state.navigation = null; save(); log('检测到手动切换知识点，已暂停，请点击开始/继续。'); return Promise.resolve(); }
+        state.currentNodeId = scope.nodeId;
       }
       return start();
     }
@@ -391,7 +407,7 @@
       panel = doc.createElement('section');
       panel.id = 'zhs-read-all-panel';
       panel.setAttribute('aria-label', '全资源学习助手');
-      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.4</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>资源异常会列入待人工清单并继续遍历；手动暂停或离开课程仍会停止。</small><section data-report hidden></section>';
+      panel.innerHTML = '<strong>国家安全概论 · 全资源学习助手 v1.0.5</strong><p data-status>待开始：包含必学和选学</p><p data-progress></p><div class="zra-actions"><button data-start>开始/继续</button><button data-pause>暂停</button><button data-reset>清除本地断点</button></div><label><input type="checkbox" data-mute checked>静音播放视频（1 倍速）</label><textarea readonly aria-label="运行日志" rows="5"></textarea><small>自动换页后会接续运行；资源异常列入待人工清单，手动暂停或离开课程仍会停止。</small><section data-report hidden></section>';
       const style = doc.createElement('style');
       style.textContent = '#zhs-read-all-panel{position:fixed;right:20px;bottom:20px;z-index:2147483646;width:350px;max-width:90vw;background:#fff;color:#17212d;border:1px solid #c7d5e4;border-radius:10px;padding:14px;box-shadow:0 4px 24px #0003;font:13px/1.5 system-ui,sans-serif;text-align:left}#zhs-read-all-panel p{margin:8px 0;overflow-wrap:anywhere}#zhs-read-all-panel button{padding:5px 8px;border:1px solid #a9c5e3;border-radius:5px;background:#eff6ff;color:#123;margin:0 6px 8px 0;cursor:pointer}#zhs-read-all-panel label{display:block;margin:4px 0}#zhs-read-all-panel textarea{box-sizing:border-box;display:block;width:100%;margin:8px 0;color:#334;background:#f6f8fb;font:11px/1.5 monospace;border:1px solid #dce4ee;resize:vertical}#zhs-read-all-panel small{display:block;color:#526273}#zhs-read-all-panel [data-report]{max-height:30vh;overflow:auto;border-top:1px solid #dce4ee;margin-top:8px;padding-top:8px}#zhs-read-all-panel [data-report][hidden]{display:none}#zhs-read-all-panel [data-report] ol{padding-left:20px}';
       panel.appendChild(style);

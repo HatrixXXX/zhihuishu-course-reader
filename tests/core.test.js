@@ -120,6 +120,14 @@ test('explicit catalog-scan handoff survives refresh but an empty unarmed run do
   assert.equal(core.restoreProgress({ ...seed, phase: 'scan' }).phase, 'scan');
 });
 
+test('a valid pending course navigation survives progress restoration', () => {
+  const seed = { ...core.restoreProgress(null), owner: 'tab-a', running: true, chapters: [{ id: '123', title: '知识点' }],
+    navigation: { owner: 'tab-a', url: `https://${core.HOST}/learnPage/${core.COURSE}/123/${core.CLASS}`, expires: 5000 } };
+  assert.deepEqual(core.restoreProgress(seed).navigation, seed.navigation);
+  assert.equal(core.restoreProgress({ ...seed, navigation: { ...seed.navigation, url: 'https://example.org/' } }).navigation, null);
+  assert.equal(core.restoreProgress({ ...seed, navigation: { ...seed.navigation, owner: 'tab-b' } }).navigation, null);
+});
+
 test('persisted numeric IDs are rejected rather than silently rounding large identifiers', () => {
   const seed = { ...core.restoreProgress(null), chapters: [{ id: 1942858164356464640, title: 'invalid numeric ID' }] };
   assert.deepEqual(core.restoreProgress(seed).chapters, []);

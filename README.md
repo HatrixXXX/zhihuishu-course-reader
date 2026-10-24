@@ -8,7 +8,7 @@
 
 ## 下载
 
-- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.4.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
+- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.5.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
 - [直接安装用户脚本](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/course-reader.user.js)：浏览器已安装篡改猴或脚本猫时，可通过管理器安装。
 - [版本与下载列表](https://github.com/HatrixXXX/zhihuishu-course-reader/releases)。
 
@@ -27,7 +27,7 @@
 - 视频：默认静音、1 倍速，等待播放器真实结束。平台卡片已经明确显示完成的视频会跳过，不重复播放。
 - 知网安全验证链接：已确认的卡片标题、卡片直链，或点击时请求打开的知网地址会留待人工处理，继续遍历后面的资源；不会将其记为已打开。全部遍历后，右下角报告列出跳过项、课程位置链接，以及能取得的知网直链。
 
-“暂停”会停止调度并暂停当前视频。再次点击“开始/继续”会保留断点。工具切换知识点后会继续运行；刷新同一标签页也会尝试恢复。浏览器关闭后，重新打开课程目录并点击“开始/继续”即可。
+“暂停”会停止调度并暂停当前视频。再次点击“开始/继续”会保留断点。目录和知识点之间统一在当前标签页导航；自动换页会保存目标页交接状态，新页面会自动接续。即使脚本管理器在换页后重新分配运行标识，也只有预定目标页能在五分钟内接续，其他活动标签页不会被强行接管。刷新同一标签页也会尝试恢复。浏览器关闭后，重新打开课程目录并点击“开始/继续”即可。
 
 “清除本地断点”只清除本工具的记录。清除后文档和链接会重新打开，平台已经完成的视频仍会跳过。
 

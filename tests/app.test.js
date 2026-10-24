@@ -298,11 +298,14 @@ test('catalog scanning includes 100 percent nodes and both modules', async () =>
   const html = `<div id="knowledgeId-1942858164356464640"><div class="item-mask"></div><div class="item-title">已到100%</div></div><div id="knowledgeId-1959274810743853056"><div class="item-mask"></div><div class="item-title">第二模块</div></div>`;
   const h = harness({ html, url: home });
   let entered = false;
-  h.document.querySelector('.item-mask').addEventListener('click', () => { entered = true; h.app.pause(); });
+  h.document.querySelector('.item-mask').addEventListener('click', () => { entered = true; });
   try {
     await h.app.start();
     assert.deepEqual(h.app.getState().chapters.map(c => c.id), ['1942858164356464640', '1959274810743853056']);
-    assert.equal(entered, true);
+    assert.equal(entered, false);
+    assert.equal(h.navigations.length, 1);
+    assert.equal(new URL(h.navigations[0]).pathname, `/learnPage/2101609010059079680/${nodeId}/299118`);
+    assert.equal(h.app.getState().running, true);
   } finally { h.close(); }
 });
 
@@ -353,6 +356,95 @@ test('a completed chapter advances to the next node while preserving the real ro
   } finally { h.close(); }
 });
 
+for (const nextTabId of ['tab-a', 'tab-b']) {
+  test(`a new document resumes the planned next node with runner ${nextTabId}`, async () => {
+    const store = new Map();
+    const nextNode = '1942858169804865536';
+    const first = harness({ store, html: card('第一页讲义.pptx', 'other'), url: learn.split('?')[0] + '?catalogActiveTab=personal' });
+    first.app.getState().chapters.push({ id: nextNode, title: '下一知识点' });
+    store.set(STORAGE_KEY, structuredClone(first.app.getState()));
+    let target;
+    try {
+      await first.app.start();
+      target = first.navigations[0];
+      assert.equal(new URL(target).searchParams.get('catalogActiveTab'), 'personal');
+    } finally { first.close(); }
+    const second = harness({ store, tabId: nextTabId, url: target, html: card('第二页讲义.pptx', 'other') });
+    try {
+      await second.app.resume();
+      assert.deepEqual(second.clicks, ['第二页讲义.pptx']);
+      assert.equal(second.app.getState().chapterDone[nodeId], true);
+      assert.equal(second.app.getState().chapterDone[nextNode], true);
+      assert.equal(second.app.getState().phase, 'finished');
+    } finally { second.close(); }
+  });
+}
+
+test('a navigation handoff cannot be consumed by the wrong page or over another live runner', async () => {
+  const nextNode = '1942858169804865536';
+  for (const blockedBy of ['wrong-page', 'other-owner', 'expired', 'absent']) {
+    const store = new Map();
+    const first = harness({ store, html: card('第一页讲义.pptx', 'other') });
+    first.app.getState().chapters.push({ id: nextNode, title: '下一知识点' });
+    store.set(STORAGE_KEY, structuredClone(first.app.getState()));
+    let target;
+    try { await first.app.start(); target = first.navigations[0]; } finally { first.close(); }
+    if (blockedBy === 'other-owner') store.set(LEASE_KEY, { owner: 'tab-c', expires: 99999 });
+    if (blockedBy === 'expired' || blockedBy === 'absent') {
+      const state = structuredClone(store.get(STORAGE_KEY));
+      if (blockedBy === 'absent') state.navigation = null;
+      else if (state.navigation) state.navigation.expires = 999;
+      store.set(STORAGE_KEY, state);
+    }
+    const before = structuredClone(store.get(STORAGE_KEY));
+    const second = harness({ store, tabId: 'tab-b', url: blockedBy === 'wrong-page' ? learn : target, html: card('不应点击.pptx', 'other') });
+    try {
+      await second.app.resume();
+      assert.deepEqual(second.clicks, [], blockedBy);
+      assert.deepEqual(store.get(STORAGE_KEY), before, blockedBy);
+    } finally { second.close(); }
+  }
+});
+
+test('manual pause revokes a pending next-page handoff', async () => {
+  const store = new Map();
+  const first = harness({ store, html: card('第一页讲义.pptx', 'other') });
+  first.app.getState().chapters.push({ id: '1942858169804865536', title: '下一知识点' });
+  store.set(STORAGE_KEY, structuredClone(first.app.getState()));
+  let target;
+  try {
+    await first.app.start();
+    target = first.navigations[0];
+    first.app.pause();
+    assert.equal(store.get(STORAGE_KEY).navigation, null);
+  } finally { first.close(); }
+  const second = harness({ store, tabId: 'tab-b', url: target, html: card('第二页讲义.pptx', 'other') });
+  try {
+    await second.app.resume();
+    assert.deepEqual(second.clicks, []);
+    assert.equal(store.get(STORAGE_KEY).running, false);
+  } finally { second.close(); }
+});
+
+test('an older mounted target cannot consume a handoff already completed by another page', async () => {
+  const store = new Map();
+  const nextNode = '1942858169804865536';
+  const first = harness({ store, html: card('第一页讲义.pptx', 'other') });
+  first.app.getState().chapters.push({ id: nextNode, title: '下一知识点' });
+  store.set(STORAGE_KEY, structuredClone(first.app.getState()));
+  let target;
+  try { await first.app.start(); target = first.navigations[0]; } finally { first.close(); }
+  const second = harness({ store, tabId: 'tab-b', url: target, html: card('第二页讲义.pptx', 'other') });
+  const stale = harness({ store, tabId: 'tab-c', url: target, html: card('第二页讲义.pptx', 'other') });
+  try {
+    await second.app.resume();
+    const completed = structuredClone(store.get(STORAGE_KEY));
+    await stale.app.resume();
+    assert.deepEqual(stale.clicks, []);
+    assert.deepEqual(store.get(STORAGE_KEY), completed);
+  } finally { second.close(); stale.close(); }
+});
+
 test('consecutive videos work when the platform reuses the same HTML video element', async () => {
   const h = harness({ html: card('第一视频', 'video') + card('第二视频', 'video') });
   try {
@@ -394,6 +486,15 @@ test('a chapter with no loadable resource list is reported and traversal finishe
     assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped']);
     assert.equal(h.app.getState().chapterDone[nodeId], true);
     assert.match(h.document.querySelector('[data-report]').textContent, /资源卡片/);
+  } finally { h.close(); }
+});
+
+test('a running page shows a loading status while its resources are not ready', async () => {
+  let status;
+  const h = harness({ html: '', step: ({ document }) => { status ??= document.querySelector('[data-status]').textContent; } });
+  try {
+    await h.app.start();
+    assert.match(status, /等待.*资源/);
   } finally { h.close(); }
 });
 
