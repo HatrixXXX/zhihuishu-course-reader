@@ -5,7 +5,7 @@ const output = path.join(root, 'dist', '国家安全概论-全部资源.user.js'
 const header = `// ==UserScript==
 // @name         国家安全概论 · 全部资源学习助手
 // @namespace    local.zhihuishu.course-reader
-// @version      1.0.0
+// @version      1.0.1
 // @description  遍历本课程全部必学和选学资源，打开文档和链接，顺序播放视频，支持暂停和断点继续。
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/singleCourse/knowledgeStudy/2101609010059079680/299118*
 // @match        https://ai-smart-course-student-pro.zhihuishu.com/learnPage/2101609010059079680/*/299118*

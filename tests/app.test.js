@@ -138,6 +138,21 @@ test('unsupported resources fail visibly rather than marking the chapter complet
   } finally { h.close(); }
 });
 
+test('known CNKI resource is skipped, later resources continue, and final report links back to the chapter', async () => {
+  const h = harness({ html: card('颠覆性技术与科技安全', 'unknown-platform') + card('后续讲义.pptx', 'other') });
+  try {
+    await h.app.start();
+    assert.deepEqual(h.clicks, ['后续讲义.pptx']);
+    assert.deepEqual(Object.values(h.app.getState().records).map(r => r.status), ['skipped', 'opened']);
+    assert.equal(h.app.getState().phase, 'finished');
+    assert.equal(h.app.getState().chapterDone[nodeId], true);
+    const report = h.document.querySelector('[data-report]');
+    assert.equal(report.hidden, false);
+    assert.match(report.textContent, /颠覆性技术与科技安全/);
+    assert.equal(report.querySelector('a').href, learn);
+  } finally { h.close(); }
+});
+
 test('persisted resume continues in the same tab without reopening visited documents', async () => {
   const store = new Map();
   const h = harness({ store, html: card('一.pptx', 'other') + card('二.pptx', 'other') });

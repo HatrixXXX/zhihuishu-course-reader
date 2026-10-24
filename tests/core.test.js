@@ -40,6 +40,27 @@ test('opened is insufficient for video completion and unknown resources are not 
   assert.equal(core.nextResource('n', [{ id: 'x', kind: 'unknown' }], {} ).id, 'x');
 });
 
+test('manual resources stay skipped after restoring progress and appear in the report', () => {
+  const resource = { id: 'manual:cnki:1', kind: 'manual' };
+  const nodeId = '1942858164356464640';
+  const state = {
+    ...core.restoreProgress(null), phase: 'finished',
+    chapters: [{ id: nodeId, title: '科技安全' }],
+    records: { [core.resourceKey(nodeId, resource)]: {
+      title: '颠覆性技术与科技安全', kind: 'manual', status: 'skipped', nodeId,
+      url: 'https://kns.cnki.net/kcms/detail/1', mapUid: '1942422359894003712',
+    } },
+  };
+  const restored = core.restoreProgress(state);
+  assert.equal(restored.phase, 'finished');
+  assert.equal(core.nextResource(nodeId, [resource], restored.records), null);
+  assert.deepEqual(core.progressReport(restored).skipped, [{
+    title: '颠覆性技术与科技安全', chapterTitle: '科技安全',
+    courseUrl: `https://ai-smart-course-student-pro.zhihuishu.com/learnPage/2101609010059079680/${nodeId}/299118?mapUid=1942422359894003712`,
+    url: 'https://kns.cnki.net/kcms/detail/1',
+  }]);
+});
+
 test('video must report a real ended state rather than just near-end position', () => {
   assert.equal(core.videoFinished({ ended: false, currentTime: 9.99, duration: 10 }), false);
   assert.equal(core.videoFinished({ ended: true, currentTime: 10, duration: 10 }), true);

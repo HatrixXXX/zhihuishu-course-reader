@@ -22,6 +22,7 @@
 
   function resourceKey(nodeId, resource) { return JSON.stringify([String(nodeId), resource.id]); }
   function isDone(resource, record) {
+    if (resource.kind === 'manual') return record?.status === 'skipped';
     if (resource.kind === 'video') return resource.completed === true || ['watched', 'platform-complete'].includes(record?.status);
     return resource.kind !== 'unknown' && record?.status === 'opened';
   }
@@ -39,9 +40,36 @@
     const empty = { version: 1, courseId: COURSE, classId: CLASS, running: false, owner: null, chapters: [], chapterDone: {}, records: {}, currentNodeId: null };
     if (!raw || raw.version !== 1 || raw.courseId !== COURSE || raw.classId !== CLASS || !Array.isArray(raw.chapters) || !raw.records || typeof raw.records !== 'object') return empty;
     const chapters = raw.chapters.filter(c => c && typeof c.id === 'string' && /^\d+$/.test(c.id) && typeof c.title === 'string').map(c => ({ id: c.id, title: c.title }));
-    const records = Object.fromEntries(Object.entries(raw.records).filter(([, r]) => r && ['opened', 'watched', 'platform-complete'].includes(r.status)));
-    const phase = ['scan', 'learn'].includes(raw.phase) ? raw.phase : null;
+    const records = Object.fromEntries(Object.entries(raw.records).filter(([, r]) => r && ['opened', 'watched', 'platform-complete', 'skipped'].includes(r.status)));
+    const phase = ['scan', 'learn', 'finished'].includes(raw.phase) ? raw.phase : null;
     return { ...empty, chapters, records, phase, chapterDone: raw.chapterDone && typeof raw.chapterDone === 'object' ? { ...raw.chapterDone } : {}, currentNodeId: typeof raw.currentNodeId === 'string' ? raw.currentNodeId : null, running: raw.running === true && (chapters.length > 0 || phase === 'scan') && typeof raw.owner === 'string', owner: typeof raw.owner === 'string' ? raw.owner : null };
   }
-  return { COURSE, CLASS, HOST, parseScope, resourceKey, isDone, nextResource, videoFinished, leaseAvailable, restoreProgress };
+  function progressReport(state) {
+    const records = Object.values(state.records);
+    return {
+      opened: records.filter(r => r.status === 'opened').length,
+      watched: records.filter(r => r.status === 'watched').length,
+      platformComplete: records.filter(r => r.status === 'platform-complete').length,
+      skipped: records.filter(r => r.status === 'skipped').map(r => {
+        const chapter = state.chapters.find(c => c.id === r.nodeId);
+        let courseUrl = null;
+        if (typeof r.nodeId === 'string' && /^\d+$/.test(r.nodeId)) {
+          const target = new URL(`https://${HOST}/learnPage/${COURSE}/${r.nodeId}/${CLASS}`);
+          if (typeof r.mapUid === 'string' && /^\d+$/.test(r.mapUid)) target.searchParams.set('mapUid', r.mapUid);
+          courseUrl = target.href;
+        }
+        let url = null;
+        try {
+          const parsed = new URL(r.url);
+          if (parsed.protocol === 'https:' && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(parsed.hostname)) url = parsed.href;
+        } catch (_) { /* The course position remains available without a direct link. */ }
+        return {
+          title: r.title, chapterTitle: chapter?.title || '未知知识点',
+          courseUrl,
+          url,
+        };
+      }),
+    };
+  }
+  return { COURSE, CLASS, HOST, parseScope, resourceKey, isDone, nextResource, videoFinished, leaseAvailable, restoreProgress, progressReport };
 });

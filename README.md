@@ -8,7 +8,7 @@
 
 ## 下载
 
-- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.0.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
+- [便携安装包 ZIP](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/zhihuishu-course-reader-v1.0.1.zip)：解压后打开 `安装助手.html`，按提示复制和安装。适合换电脑使用。
 - [直接安装用户脚本](https://github.com/HatrixXXX/zhihuishu-course-reader/releases/latest/download/course-reader.user.js)：浏览器已安装篡改猴或脚本猫时，可通过管理器安装。
 - [版本与下载列表](https://github.com/HatrixXXX/zhihuishu-course-reader/releases)。
 
@@ -25,6 +25,7 @@
 - PPT、PDF、文档和图文：点击资源卡片，等待页面切换和加载，停留 3 秒后继续。PPT 不逐页翻看。
 - 外链：点击平台的资源卡片，使用脚本管理器在后台打开目标页面，停留 3 秒后关闭该标签页。目标网站的内容加载和阅读情况无法跨域验证。
 - 视频：默认静音、1 倍速，等待播放器真实结束。平台卡片已经明确显示完成的视频会跳过，不重复播放。
+- 知网安全验证链接：已识别的卡片留待人工处理，继续遍历后面的资源；不会将其记为已打开。全部遍历后，右下角报告列出跳过项、课程位置链接，以及卡片中能取得的知网直链。
 
 “暂停”会停止调度并暂停当前视频。再次点击“开始/继续”会保留断点。工具切换知识点后会继续运行；刷新同一标签页也会尝试恢复。浏览器关闭后，重新打开课程目录并点击“开始/继续”即可。
 
@@ -32,7 +33,7 @@
 
 ## 暂停和异常
 
-出现登录、验证、答题弹窗，视频加载失败、长时间不前进，或遇到无法识别的资源时，工具会暂停并在日志中说明原因。处理页面问题后，再点击“开始/继续”。
+除上述知网待验证链接外，出现登录、验证、答题弹窗，视频加载失败、长时间不前进，或遇到无法识别的资源时，工具会暂停并在日志中说明原因。处理页面问题后，再点击“开始/继续”。
 
 如果提示另一个标签页正在运行，请回到那个标签页暂停。那个页面已经关闭时，等待约 15 秒后再开始。
 

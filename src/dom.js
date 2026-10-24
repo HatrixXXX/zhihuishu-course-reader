@@ -46,8 +46,19 @@
     return result;
   }
 
-  function resourceKind(element, title) {
+  function cnkiUrl(element) {
+    for (const anchor of element.querySelectorAll('a[href]')) {
+      try {
+        const url = new URL(anchor.getAttribute('href'), element.ownerDocument.baseURI);
+        if (url.protocol === 'https:' && /(^|\.)cnki\.(?:net|com\.cn)$/i.test(url.hostname)) return url.href;
+      } catch (_) { /* Ignore malformed card links. */ }
+    }
+    return null;
+  }
+
+  function resourceKind(element, title, manualUrl) {
     if (element.querySelector('.icon-box.video') || /\.(?:mp4|webm|m4v|mov|m3u8)$/i.test(title)) return 'video';
+    if (manualUrl || title === '颠覆性技术与科技安全') return 'manual';
     if (element.querySelector('.icon-box.zhihu, .icon-box.link')) return 'link';
     if (/\.(?:pdf|pptx?|docx?|xlsx?|odt|odp|epub)$/i.test(title)) return 'document';
     if (element.querySelector('.icon-box.other') && /^\d+\s*页$/.test(text(element.querySelector('.page-num')?.textContent))) return 'document';
@@ -68,14 +79,15 @@
       const clickTarget = element.querySelector('.video-title.common-text, .video-title, h5') || element;
       const titleElement = clickTarget.querySelector('h5') || clickTarget;
       const title = text(titleElement.getAttribute('title') || (titleElement === element ? '' : titleElement.textContent));
-      const kind = resourceKind(element, title);
+      const url = cnkiUrl(element);
+      const kind = resourceKind(element, title, url);
       const identity = `${kind}:${encodeURIComponent(title)}`;
       const occurrence = (occurrences.get(identity) || 0) + 1;
       occurrences.set(identity, occurrence);
       const completed = Array.from(element.querySelectorAll('.finished-icon')).some(badge =>
         isVisible(badge) && /^(?:已完成|100(?:\.0+)?%)$/.test(text(badge.textContent).replace(/\s/g, '')));
       return {
-        id: `${identity}:${occurrence}`, title, kind, completed,
+        id: `${identity}:${occurrence}`, title, kind, url, completed,
         active: element.classList.contains('active'), index, element, clickTarget,
       };
     });
